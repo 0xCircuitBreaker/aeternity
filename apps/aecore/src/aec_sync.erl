@@ -676,7 +676,7 @@ do_start_sync(PeerId, RemoteHash) ->
     end.
 
 do_start_sync1(PeerId, RemoteHash) ->
-    case aec_peer_connection:get_header_by_hash(PeerId, RemoteHash) of
+    case peer_get_header_by_hash(PeerId, RemoteHash) of
         {ok, Hdr} ->
             epoch_sync:debug("New header received (~p): ~p", [ppp(PeerId), pp(Hdr)]),
 
@@ -747,7 +747,7 @@ next_known_hash(Cs, N) ->
 do_get_header_by_height([], _N, _TopHash) ->
     {error, header_not_found};
 do_get_header_by_height([PeerId | PeerIds], N, TopHash) ->
-    case aec_peer_connection:get_header_by_height(PeerId, N, TopHash) of
+    case peer_get_header_by_height(PeerId, N, TopHash) of
         {ok, Header} ->
             {ok, Header};
         {error, Reason} ->
@@ -840,7 +840,7 @@ get_header_by_height(PeerId, Height, RemoteTop) ->
     case Height == aec_block_genesis:height() of
         true  -> aec_chain:genesis_hash(); %% Handshake ensure we agree on genesis
         false ->
-            case aec_peer_connection:get_header_by_height(PeerId, Height, RemoteTop) of
+            case peer_get_header_by_height(PeerId, Height, RemoteTop) of
                 {ok, RemoteAtHeight} ->
                     {ok, RHash} = aec_headers:hash_header(RemoteAtHeight),
                     RHash;
@@ -896,7 +896,7 @@ add_blocks([B | Bs]) ->
     end.
 
 fill_pool(PeerId, StartHash, TargetHash, ST) ->
-    case aec_peer_connection:get_n_successors(PeerId, StartHash, TargetHash, ?MAX_HEADERS_PER_CHUNK) of
+    case peer_get_n_successors(PeerId, StartHash, TargetHash, ?MAX_HEADERS_PER_CHUNK) of
         {ok, []} ->
             aec_peer_connection:set_sync_height(PeerId, none),
             do_get_generation(PeerId, StartHash),
@@ -1101,6 +1101,43 @@ sync_progress(#state{sync_tasks = SyncTasks} = State) ->
                     false -> SyncProgress0
                 end,
             {true, SyncProgress}
+    end.
+
+peer_get_header_by_hash(PeerId, RemoteHash) ->
+    validate_header(aec_peer_connection:get_header_by_hash(PeerId, RemoteHash), PeerId).
+
+peer_get_header_by_height(PeerId, Height, TopHash) ->
+    validate_header(
+      aec_peer_connection:get_header_by_height(PeerId, Height, TopHash), PeerId).
+
+peer_get_n_successors(PeerId, StartHash, TargetHash, N) ->
+    case aec_peer_connection:get_n_successors(PeerId, StartHash, TargetHash, N) of
+        {ok, Hashes} = Ok ->
+            case lists:any(fun fails_whitelist/1, Hashes) of
+                true ->
+                    lager:debug("Successor batch from ~p failed whitelist", [PeerId]),
+                    {error, blocked_by_whitelist};
+                false ->
+                    Ok
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+fails_whitelist({Height, Hash}) ->
+    Consensus = aec_consensus:get_consensus_module_at_height(Height),
+    case Consensus:dirty_validate_key_hash_at_height(Height, Hash) of
+        {error, blocked_by_whitelist} -> true;
+        _ ->
+            false
+    end.
+
+validate_header({ok, Header}, PeerId) ->
+    case aec_validation:validate_header(Header) of
+        ok -> {ok, Header};
+        {error, _} = Error ->
+            lager:debug("Header from ~p failed validation: ~p", [PeerId, Header]),
+            Error
     end.
 
 pp_chain_block(#chain_block{hash = Hash, height = Height}) ->
