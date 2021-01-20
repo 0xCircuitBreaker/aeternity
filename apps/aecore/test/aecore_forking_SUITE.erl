@@ -48,7 +48,6 @@ suite() ->
     [].
 
 init_per_suite(Config) ->
-    ct:pal("init_per_suite: ~p", [time()]),
     %% Do not use 'instant_mining', as it short-cuts header validation/whitelist tests
     aecore_suite_utils:init_per_suite([dev1, dev2, dev3],
                                       #{<<"sync">> =>
@@ -60,7 +59,6 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     [aecore_suite_utils:stop_node(D, Config) || D <- [dev1, dev2, dev3]],
-    ct:pal("end_per_suite: ~p", [time()]),
     ok.
 
 init_per_group(two_nodes, Config) ->
