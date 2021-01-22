@@ -4,8 +4,6 @@
 
 -export([
           start_link/0
-        , start_view/2
-        , terminate_view/1
         , init/1
         ]).
 
@@ -25,12 +23,3 @@ init([]) ->
             []
     end,
     {ok, {{one_for_one, 5, 10}, Spec}}.
-
-
--spec start_view(term(), map()) -> {ok, pid()}.
-start_view(View, Conf) ->
-    {ok, _Pid} = supervisor:start_child(?SERVER, ?CHILD(View, aehc_parent_sup, [View, Conf], 5000, worker)).
-
--spec terminate_view(term()) -> ok.
-terminate_view(View) ->
-    ok = supervisor:terminate_child(?SERVER, View).
